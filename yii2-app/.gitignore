@@ -31,3 +31,6 @@ tests/_support/_generated
 
 #vagrant folder
 /.vagrant
+
+# MySql dump files folder
+/sql_dumps/*.sql
