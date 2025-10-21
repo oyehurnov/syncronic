@@ -1,103 +1,124 @@
 <?php
-use yii\helpers\Html;
-use yii\web\View;
 
-$this->title = 'SQL Dump Manager';
+use yii\helpers\Html;
+use yii\widgets\ActiveForm;
+use yii\widgets\Pjax;
+use yii\helpers\Url;
+
+$this->title = 'SQL Dump Parser Control Panel';
 ?>
 
-<h1><?= Html::encode($this->title) ?></h1>
+<div class="dump-index">
+    <h1><?= Html::encode($this->title) ?></h1>
 
-<div id="dump-manager">
+    <!-- Upload Form -->
+    <div class="card mb-4 p-3 border rounded bg-light">
+        <h4>Upload New SQL Dump</h4>
+        <?php $form = ActiveForm::begin([
+                'id' => 'upload-form',
+                'options' => ['enctype' => 'multipart/form-data'],
+        ]); ?>
 
-    <h3>Available Dumps</h3>
-    <form id="parse-form">
-        <div id="file-list">
-            <?= $this->render('_fileList', ['files' => $files]) ?>
-        </div>
-        <button type="submit" class="btn btn-primary mb-3">Parse & Export XML</button>
-    </form>
+        <?= Html::fileInput('file', null, [
+                'id' => 'upload-input',
+                'class' => 'form-control mb-2'
+        ]) ?>
+        <?= Html::button('Upload', [
+                'class' => 'btn btn-success',
+                'id' => 'upload-btn'
+        ]) ?>
 
-    <div id="xml-result" class="alert alert-success d-none mt-2"></div>
+        <?php ActiveForm::end(); ?>
+    </div>
 
-    <hr>
-    <h3>Upload New Dump</h3>
-    <form id="upload-form" enctype="multipart/form-data">
-        <input type="file" name="dumpFile" accept=".sql" required>
-        <button type="submit" class="btn btn-success">Upload</button>
-    </form>
+    <!-- File List -->
+    <?php Pjax::begin(['id' => 'file-list-pjax', 'timeout' => 10000]); ?>
+    <div class="file-list-section">
+        <?= $this->render('_fileList', ['dataProvider' => $dataProvider]); ?>
+    </div>
+    <?php Pjax::end(); ?>
+
+    <!-- Action Buttons -->
+    <div class="mt-4">
+        <?= Html::button('Parse Selected Dumps', [
+                'class' => 'btn btn-primary',
+                'id' => 'parse-button'
+        ]) ?>
+
+        <?= Html::a('Download parsed_news.xml', ['dump/download-xml'], [
+                'class' => 'btn btn-info ms-3',
+                'id' => 'download-xml',
+                'target' => '_blank'
+        ]) ?>
+    </div>
 </div>
 
 <?php
-$deleteUrl = \yii\helpers\Url::to(['dump/delete']);
-$uploadUrl = \yii\helpers\Url::to(['dump/upload']);
-$listUrl   = \yii\helpers\Url::to(['dump/list']);
-$parseUrl  = \yii\helpers\Url::to(['dump/parse']);
+$parseUrl   = Url::to(['dump/parse']);
+$deleteUrl  = Url::to(['dump/delete']);
+$uploadUrl  = Url::to(['dump/upload']);
 
 $js = <<<JS
-function refreshList() {
-    $.get('$listUrl', function(data) {
-        $('#file-list').html(data);
-    });
-}
-
-// Upload file (AJAX)
-$('#upload-form').on('submit', function(e) {
+// === AJAX file upload (FormData) ===
+$('#upload-btn').on('click', function(e) {
     e.preventDefault();
-    var formData = new FormData(this);
+    var fileInput = $('#upload-input')[0];
+    if (!fileInput.files.length) {
+        alert('Please select a file to upload.');
+        return;
+    }
+
+    var formData = new FormData();
+    formData.append('file', fileInput.files[0]); // must match UploadedFile::getInstanceByName('file')
+
     $.ajax({
         url: '$uploadUrl',
         type: 'POST',
         data: formData,
-        contentType: false,
         processData: false,
-        success: function(resp) {
-            if (resp.success) {
-                refreshList();
+        contentType: false,
+        success: function(response) {
+            if (response.success) {
+                alert('File uploaded successfully.');
+                $.pjax.reload({container:'#file-list-pjax'});
+                $('#upload-input').val(''); // reset input
             } else {
-                alert(resp.error || 'Upload failed');
-            }
-        }
-    });
-});
-
-// Delete file (AJAX)
-$(document).on('click', '.btn-delete', function() {
-    var name = $(this).data('name');
-    if (!confirm('Delete ' + name + '?')) return;
-
-    $.ajax({
-        url: '$deleteUrl',
-        type: 'POST',
-        data: { name: name },
-        success: function(resp) {
-            if (resp.success) {
-                refreshList();
-            } else {
-                alert(resp.error || 'Delete failed');
+                alert('Upload failed: ' + (response.error || 'Unknown error'));
             }
         },
         error: function(xhr) {
-            alert('HTTP ' + xhr.status + ': ' + xhr.statusText);
+            alert('Server error: ' + xhr.statusText);
         }
     });
 });
 
-
-// Parse files to XML (AJAX)
-$('#parse-form').on('submit', function(e) {
-    e.preventDefault();
-    var data = $(this).serialize();
-    $.post('$parseUrl', data, function(resp) {
-        if (resp.success) {
-    $('#xml-result')
-      .removeClass('d-none')
-      .html('✅ XML generated (' + resp.count + ' posts): ' +
-        '<a href="' + resp.xmlUrl + '" target="_blank">Download parsed_news.xml</a>');
+// === Handle Parse button ===
+$('#parse-button').on('click', function() {
+    let selected = $('#file-grid').yiiGridView('getSelectedRows');
+    if (!selected.length) {
+        alert('Please select at least one dump file to parse.');
+        return;
+    }
+    $.post('$parseUrl', { files: selected }, function(response) {
+        if (response.success) {
+            alert('Parsing complete. XML generated.');
+            $.pjax.reload({container:'#file-list-pjax'});
         } else {
-            alert(resp.error || 'Parsing failed');
+            alert('Parsing failed: ' + (response.error || 'Unknown error'));
         }
+    });
+});
+
+// === Handle file delete action ===
+$(document).on('click', '.delete-dump', function(e) {
+    e.preventDefault();
+    if (!confirm('Delete this dump file?')) return;
+    const file = $(this).data('file');
+    $.post('$deleteUrl', { name: file }, function(response) {
+        $.pjax.reload({container:'#file-list-pjax'});
     });
 });
 JS;
-$this->registerJs($js, View::POS_READY);
+
+$this->registerJs($js);
 ?>

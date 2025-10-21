@@ -4,7 +4,6 @@ namespace app\controllers;
 use Yii;
 use yii\web\Controller;
 use yii\web\Response;
-use yii\web\UploadedFile;
 use yii\helpers\FileHelper;
 
 class DumpController extends Controller
@@ -36,22 +35,27 @@ class DumpController extends Controller
      */
     public function actionIndex()
     {
-        return $this->render('index', [
-            'files' => $this->getFileList(),
-        ]);
-    }
+        $folder = Yii::getAlias('@app/sql_dumps');
+        if (!is_dir($folder)) {
+            mkdir($folder, 0777, true);
+        }
 
-    // --- AJAX partial refresh ---
+        $files = [];
+        foreach (glob($folder . '/*.sql') as $path) {
+            $files[] = [
+                'name' => basename($path),
+                'size' => filesize($path),
+            ];
+        }
 
-    /**
-     * @return string
-     */
-    public function actionList()
-    {
-        Yii::$app->response->format = Response::FORMAT_HTML;
-        return $this->renderPartial('_fileList', [
-            'files' => $this->getFileList(),
+        $dataProvider = new \yii\data\ArrayDataProvider([
+            'allModels' => $files,
+            'pagination' => false,
+            'key' => 'name', // ✅ use file name as key
         ]);
+
+
+        return $this->render('index', ['dataProvider' => $dataProvider]);
     }
 
     /**
@@ -59,14 +63,22 @@ class DumpController extends Controller
      */
     public function actionUpload()
     {
-        Yii::$app->response->format = Response::FORMAT_JSON;
-        $file = UploadedFile::getInstanceByName('dumpFile');
-        if ($file) {
-            $path = $this->dumpPath . '/' . $file->baseName . '.' . $file->extension;
-            $file->saveAs($path);
-            return ['success' => true];
+        $file = \yii\web\UploadedFile::getInstanceByName('file');
+        if (!$file) {
+            return $this->asJson(['success' => false, 'error' => 'No file uploaded']);
         }
-        return ['success' => false, 'error' => 'No file uploaded'];
+
+        $dir = Yii::getAlias('@app/sql_dumps');
+        if (!is_dir($dir)) {
+            mkdir($dir, 0775, true);
+        }
+
+        $path = $dir . DIRECTORY_SEPARATOR . $file->baseName . '.' . $file->extension;
+        if ($file->saveAs($path)) {
+            return $this->asJson(['success' => true, 'file' => $file->name]);
+        }
+
+        return $this->asJson(['success' => false, 'error' => 'Failed to save file']);
     }
 
     /**
@@ -114,6 +126,7 @@ class DumpController extends Controller
         $xmlPath = $downloadPath . '/parsed_news.xml';
         $doc = new \DOMDocument('1.0', 'UTF-8');
         $doc->formatOutput = true;
+
         $root = $doc->createElement('posts');
         $doc->appendChild($root);
 
@@ -147,6 +160,10 @@ class DumpController extends Controller
         ];
     }
 
+    /**
+     * @return \yii\console\Response|Response
+     * @throws \yii\web\NotFoundHttpException\
+     */
     public function actionDownloadXml()
     {
         $xmlPath = Yii::getAlias('@webroot/downloads/parsed_news.xml');

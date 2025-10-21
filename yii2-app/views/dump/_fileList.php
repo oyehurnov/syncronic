@@ -1,32 +1,40 @@
 <?php
+
+use yii\grid\GridView;
 use yii\helpers\Html;
-/** @var array $files */
+
+/** @var yii\data\ArrayDataProvider $dataProvider */
 ?>
 
-<ul class="list-group mb-3">
-    <?php foreach ($files as $file): ?>
-        <li class="list-group-item">
-            <div class="d-flex justify-content-between align-items-center">
-                <label class="mb-0">
-                    <?= Html::checkbox('files[]', false, [
-                        'value' => $file,
-                        'class' => 'file-checkbox',
-                        'data-name' => $file
-                    ]) ?>
-                    <?= Html::encode($file) ?>
-                </label>
-                <button type="button"
-                        class="btn btn-sm btn-danger btn-delete"
-                        data-name="<?= Html::encode($file) ?>">
-                    Delete
-                </button>
-            </div>
-            <div class="preview-area small text-muted mt-1"
-                 id="preview-<?= Html::encode($file) ?>"></div>
-        </li>
-    <?php endforeach; ?>
-</ul>
-
-<?php if (empty($files)): ?>
-    <p><em>No SQL dump files found.</em></p>
-<?php endif; ?>
+<?= GridView::widget([
+        'id' => 'file-grid',
+        'dataProvider' => $dataProvider,
+        'columns' => [
+                ['class' => 'yii\grid\CheckboxColumn'],
+                [
+                        'attribute' => 'name',
+                        'label' => 'Dump File',
+                        'format' => 'raw',
+                        'value' => fn($model) => Html::encode($model['name']),
+                ],
+                [
+                        'attribute' => 'size',
+                        'label' => 'Size (KB)',
+                        'value' => fn($model) => round(((float)($model['size'] ?? 0)) / 1024, 2),
+                ],
+                [
+                        'class' => 'yii\grid\ActionColumn',
+                        'template' => '{delete}',
+                        'buttons' => [
+                                'delete' => fn($url, $model) =>
+                                Html::a('<i class="bi bi-trash"></i> Delete', '#', [
+                                        'class' => 'btn btn-danger btn-sm delete-dump',
+                                        'data-file' => $model['name'],
+                                ]),
+                        ],
+                ],
+        ],
+        'summary' => false,
+        'options' => ['class' => 'table-responsive'],
+]);
+?>
